@@ -6,7 +6,7 @@ const compression = require('compression');
 
 const app = express();
 const port = process.env.PORT || 3000;
-const target = 'https://orsons-snorlax.vercel.app';
+const target = 'https://rebel-search.onrender.com/';
 
 // Create proxy with optimized agent (connection pooling)
 const proxy = httpProxy.createProxyServer({
