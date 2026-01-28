@@ -1,28 +1,54 @@
 const express = require('express');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const { createServer } = require('http');
+const https = require('https');
+const httpProxy = require('http-proxy');
+const compression = require('compression');
 
 const app = express();
 const port = process.env.PORT || 3000;
+const target = 'https://orsons-snorlax.vercel.app';
 
-const targetUrl = 'https://orsons-snorlax.vercel.app';
+// Create proxy with optimized agent (connection pooling)
+const proxy = httpProxy.createProxyServer({
+  target,
+  changeOrigin: true,
+  secure: true,
+  xfwd: true,               // Forward X-Forwarded-For etc.
+  preserveHeaderKeyCase: true,
+  agent: new https.Agent({
+    keepAlive: true,
+    maxSockets: 200,        // Increase for better concurrency
+    maxFreeSockets: 20,
+    timeout: 60000,
+    keepAliveMsecs: 1000
+  })
+});
 
-// Proxy all requests to the target
-app.use('/', createProxyMiddleware({
-  target: targetUrl,
-  changeOrigin: true, // Changes the origin of the host header to the target URL
-  secure: true, // Verifies the TLS certificate (set to false if self-signed cert issues)
-  pathRewrite: {
-    '^/': '/', // Rewrite paths if needed (here it's a direct proxy)
-  },
-  onProxyReq: (proxyReq, req, res) => {
-    // Optional: Add custom headers or logging
-    console.log(`Proxying request: ${req.method} ${req.url}`);
-  },
-  onError: (err, req, res) => {
-    res.status(500).send('Proxy error');
-  }
-}));
+// Compress responses to reduce transfer size
+app.use(compression({ level: 6 }));
 
-app.listen(port, () => {
-  console.log(`Proxy server running on port ${port}`);
+// Proxy ALL requests
+app.use((req, res) => {
+  console.log(`${req.method} ${req.url}`);
+
+  // Forward important headers
+  req.headers['x-forwarded-host'] = req.headers.host;
+  req.headers['x-forwarded-proto'] = req.protocol;
+
+  proxy.web(req, res, {}, (err) => {
+    if (err) {
+      console.error('Proxy error:', err);
+      res.status(502).send('Proxy error');
+    }
+  });
+});
+
+// Handle WebSocket if your app ever uses it (optional but cheap to include)
+app.on('upgrade', (req, socket, head) => {
+  proxy.ws(req, socket, head);
+});
+
+const server = createServer(app);
+server.listen(port, () => {
+  console.log(`Optimized proxy running on port ${port}`);
 });
